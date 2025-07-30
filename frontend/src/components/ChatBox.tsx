@@ -78,7 +78,7 @@ const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
             setMessage(e.target.value)
           }
-          placeholder="Ask a question about WHO alerts..."
+          placeholder="Ask a question about WHO medical product alerts..."
           disabled={isLoading}
         />
         <button onClick={handleChat} disabled={isLoading || !message.trim()}>

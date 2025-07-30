@@ -1,6 +1,7 @@
 {
   "name": "who-alert-ai",
   "scripts": {
+    "install-all": "cd backend && npm install && cd ../frontend && npm install",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd backend && node index.js",
     "client": "cd frontend && npm run dev"

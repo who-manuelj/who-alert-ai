@@ -25,7 +25,7 @@ function App() {
         <FilterForm chatHistory={chatHistory} setChatHistory={setChatHistory} />
       </div>
       <div className="right-panel panel">
-        <h2>Ask the WHO AI</h2>
+        <h2>Ask the WHO AI about Medical Product Alerts</h2>
         <ChatBox
           chatHistory={chatHistory}
           setChatHistory={setChatHistory}
