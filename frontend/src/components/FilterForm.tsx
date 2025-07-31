@@ -15,8 +15,8 @@ interface FilterProps {
 interface Filters {
   productName: string;
   activeIngredient: string;
-  alertDateFrom: string;
-  alertDateTo: string;
+  publishedDateFrom: string;
+  publishedDateTo: string;
   country: string;
   region: string;
   alertType: string;
@@ -29,8 +29,8 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
   const [filters, setFilters] = useState<Filters>({
     productName: "",
     activeIngredient: "",
-    alertDateFrom: "",
-    alertDateTo: "",
+    publishedDateFrom: "",
+    publishedDateTo: "",
     country: "",
     region: "",
     alertType: "",
@@ -38,6 +38,21 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
     supplier: "",
     alertNumber: "",
   });
+
+  const formatLabel = (key: string) => {
+    const overrides: Record<string, string> = {
+      publishedDateFrom: "Start Date",
+      publishedDateTo: "End Date",
+    };
+
+    if (overrides[key]) return overrides[key];
+
+    return key
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+  };
+
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -89,7 +104,7 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
         <input
           key={key}
           name={key}
-          placeholder={key.replace(/([A-Z])/g, " $1")}
+          placeholder={formatLabel(key)}
           type={key.toLowerCase().includes("date") ? "date" : "text"}
           onChange={handleChange}
         />

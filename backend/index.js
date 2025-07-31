@@ -75,18 +75,23 @@ app.get("/api/alerts", (req, res) => res.json(alertsData));
 // --- Endpoint: Query ---
 app.post("/api/query", async (req, res) => {
   const messages = req.body.messages || [];
+  const filters = req.body.filters || null; // <-- new
   const userMessages = messages.filter((m) => m.role === "user");
   const userQuery = userMessages.at(-1)?.content || "";
   const isFirstQuery = userMessages.length === 1;
 
   console.log("💬 User query:", userQuery);
   console.log("📨 Is first query:", isFirstQuery);
+  console.log("⚙️ Filters:", filters);
 
   try {
     const runFaissSearch = () => {
-      const result = spawnSync(PYTHON_PATH, [FAISS_SCRIPT_PATH, userQuery], {
-        encoding: "utf-8",
-      });
+      // Pass filters as JSON string if present, else just userQuery
+      const args = filters
+        ? [FAISS_SCRIPT_PATH, userQuery, JSON.stringify(filters)]
+        : [FAISS_SCRIPT_PATH, userQuery];
+
+      const result = spawnSync(PYTHON_PATH, args, { encoding: "utf-8" });
 
       if (result.error) throw result.error;
 
@@ -100,7 +105,6 @@ app.post("/api/query", async (req, res) => {
       return res.json({ result: reply, source: sourceLabel });
     };
 
-    // ⬇️ STEP 1: FAISS-first (forced or first query)
     if (isFirstQuery || USE_FAISS_ALWAYS) {
       console.log("🔍 FAISS triggered (first query or forced)");
       const faissChunks = runFaissSearch();
@@ -114,12 +118,10 @@ app.post("/api/query", async (req, res) => {
       return await runWithContext(faissChunks, "faiss-first-query");
     }
 
-    // ⬇️ STEP 2: Call AI directly using user message history
     const filteredMessages = messages.filter((m) => m.role !== "system");
     const aiText = await callAI("mistral", filteredMessages);
     console.log("🧠 Mistral raw response:", aiText);
 
-    // ⬇️ STEP 3: If AI is generic or USE_FAISS_ALWAYS is true, fall back to FAISS
     const isGeneric = isGenericResponse(aiText);
 
     if (!isGeneric && !USE_FAISS_ALWAYS) {
@@ -143,6 +145,7 @@ app.post("/api/query", async (req, res) => {
     return res.status(500).json({ error: "Query failed." });
   }
 });
+
 
 // --- Endpoint: Rebuild embeddings ---
 app.get("/api/rebuild-embeddings", async (req, res) => {

@@ -9,7 +9,6 @@ from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 from dateutil.parser import parse as parse_date
 
-
 # Force stdout encoding to UTF-8 (important for Windows terminals)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -17,8 +16,7 @@ def is_recency_query(query):
     return any(word in query.lower() for word in ["latest", "recent", "newest", "this month", "2025"])
 
 def extract_year_from_query(query):
-    # Finds any 4-digit year in the query
-    match = re.search(r"\b(20\d{2})\b", query)
+    match = re.search(r"\b(20\\d{2})\\b", query)
     return int(match.group(1)) if match else None
 
 # Load data
@@ -41,7 +39,7 @@ texts = [
 ]
 
 # Load embedding model
-model = SentenceTransformer("all-MiniLM-L6-v2")  # Small and fast
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # FAISS paths
 EMBEDDINGS_PATH = os.path.join(os.path.dirname(__file__), "faiss_index.npy")
@@ -49,58 +47,59 @@ INDEX_PATH = os.path.join(os.path.dirname(__file__), "faiss.index")
 
 def build_faiss_index():
     if os.path.exists(EMBEDDINGS_PATH) and os.path.exists(INDEX_PATH):
-        index = faiss.read_index(INDEX_PATH)
-        return index
+        return faiss.read_index(INDEX_PATH)
 
     print("Building FAISS index from scratch...")
     embeddings = model.encode(texts, show_progress_bar=True)
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(np.array(embeddings).astype("float32"))
-
-    # Save for reuse
     faiss.write_index(index, INDEX_PATH)
     np.save(EMBEDDINGS_PATH, embeddings)
     return index
 
 index = build_faiss_index()
 
-def search_embeddings(query, top_k=10):
+def search_embeddings(query, filters=None, top_k=20):
     query_embedding = model.encode([query])
     year = extract_year_from_query(query)
-    
     filtered_docs = []
 
-    # Pre-filter documents by year if applicable
-    if year:
-        for doc in documents:
-            try:
-                doc_year = parse_date(doc["publishedDate"]).year
-                if doc_year == year:
-                    filtered_docs.append(doc)
-            except Exception:
+    # Parse optional filters
+    date_from = parse_date(filters.get("publishedDateFrom")).date() if filters and filters.get("publishedDateFrom") else None
+    date_to = parse_date(filters.get("publishedDateTo")).date() if filters and filters.get("publishedDateTo") else None
+
+    for doc in documents:
+        try:
+            doc_date = parse_date(doc["publishedDate"]).date()
+            if year and doc_date.year != year:
                 continue
-    else:
-        filtered_docs = documents.copy()
+            if date_from and doc_date < date_from:
+                continue
+            if date_to and doc_date > date_to:
+                continue
+            filtered_docs.append(doc)
+        except Exception:
+            continue
 
     if not filtered_docs:
-        return [{"title": "No alerts found for the given year.", "content": "", "link": "", "publishedDate": ""}]
+        return [{
+            "title": "No alerts found for the given filter criteria.",
+            "content": "",
+            "link": "",
+            "publishedDate": ""
+        }]
 
-    # Prepare texts for the filtered set
     filtered_texts = [
         f"Title: {doc['title']}\nDate: {doc['publishedDate']}\n\n{doc['content']}"
         for doc in filtered_docs
     ]
 
-    # Generate new embeddings for this smaller set
     embeddings = model.encode(filtered_texts)
-
-    # Create a temporary FAISS index just for this search
     temp_index = faiss.IndexFlatL2(embeddings.shape[1])
     temp_index.add(np.array(embeddings).astype("float32"))
 
     D, I = temp_index.search(np.array(query_embedding).astype("float32"), top_k * 5)
 
-    # Deduplicate results by link
     results = []
     seen_links = set()
 
@@ -115,19 +114,26 @@ def search_embeddings(query, top_k=10):
                 "publishedDate": doc["publishedDate"]
             })
             seen_links.add(link)
-
         if len(results) >= top_k:
             break
 
     return results
 
-
 # CLI support
 if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else ""
+    filters = {}
+
     if not query:
         print(json.dumps({"error": "No query provided"}))
         sys.exit(1)
 
-    top_chunks = search_embeddings(query)
+    if len(sys.argv) > 2:
+        try:
+            filters = json.loads(sys.argv[2])
+        except json.JSONDecodeError:
+            print(json.dumps({"error": "Invalid filters JSON"}))
+            sys.exit(1)
+
+    top_chunks = search_embeddings(query, filters)
     print(json.dumps(top_chunks, indent=2, ensure_ascii=False))
