@@ -1,5 +1,6 @@
 import os
 import sys
+import io
 import json
 import faiss
 import numpy as np
@@ -7,6 +8,10 @@ import re
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 from dateutil.parser import parse as parse_date
+
+
+# Force stdout encoding to UTF-8 (important for Windows terminals)
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def is_recency_query(query):
     return any(word in query.lower() for word in ["latest", "recent", "newest", "this month", "2025"])

@@ -7,7 +7,7 @@ import fs from "fs";
 import { spawn, spawnSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
-import { buildContextChunks, callAI } from "./helpers/helpers.js";
+import { callAIWithBatchChunks, callAI } from "./helpers/helpers.js";
 
 dotenv.config();
 
@@ -96,14 +96,7 @@ app.post("/api/query", async (req, res) => {
     };
 
     const runWithContext = async (faissChunks, sourceLabel) => {
-      const contextString = buildContextChunks(faissChunks);
-      const systemPrompt = `You are a WHO alert assistant. Use ONLY the following context from real WHO alerts to answer the user's question. Do not speculate.\n\n${contextString}`;
-
-      const reply = await callAI("mistral", [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userQuery },
-      ]);
-
+      const reply = await callAIWithBatchChunks("mistral", userQuery, faissChunks);
       return res.json({ result: reply, source: sourceLabel });
     };
 

@@ -54,7 +54,7 @@ export default async function scrapeAlerts(saveToFile = false) {
       const anchor = $(el).find("a.link-container");
       const link = anchor.attr("href");
       const title = anchor.find("p.heading.text-underline").text().trim();
-      const publishedDate = $(el).find("span.timestamp").text().trim(); // 🟡 Grab the published date
+      const publishedDate = $(el).find("span.timestamp").text().trim();
 
       if (link && title) {
         const fullLink = link.startsWith("http")
@@ -63,11 +63,22 @@ export default async function scrapeAlerts(saveToFile = false) {
 
         const content = await scrapeAlertContent(fullLink);
 
-        alerts.push({ title, link: fullLink, publishedDate, content }); // 🔵 Include published date
+        // 🔵 Extract 4-digit year (e.g. "14 May 2023" → 2023)
+        const yearMatch = publishedDate.match(/\b(20\d{2})\b/);
+        const year = yearMatch ? parseInt(yearMatch[1]) : null;
+
+        alerts.push({
+          title,
+          link: fullLink,
+          publishedDate,
+          year,             // ✅ Add year to the JSON
+          content,
+        });
 
         console.log(`✅ Scraped: ${title}`);
       }
     }
+
 
     if (saveToFile) {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
