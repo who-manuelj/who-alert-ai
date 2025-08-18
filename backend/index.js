@@ -75,7 +75,7 @@ app.get("/api/alerts", (req, res) => res.json(alertsData));
 // --- Endpoint: Query ---
 app.post("/api/query", async (req, res) => {
   const messages = req.body.messages || [];
-  const filters = req.body.filters || null; // <-- new
+  const filters = req.body.filters || null;
   const userMessages = messages.filter((m) => m.role === "user");
   const userQuery = userMessages.at(-1)?.content || "";
   const isFirstQuery = userMessages.length === 1;
@@ -84,15 +84,16 @@ app.post("/api/query", async (req, res) => {
   console.log("📨 Is first query:", isFirstQuery);
   console.log("⚙️ Filters:", filters);
 
+  // timestamp when user sends message
+  const userTimestamp = new Date().toISOString();
+
   try {
     const runFaissSearch = () => {
-      // Pass filters as JSON string if present, else just userQuery
       const args = filters
         ? [FAISS_SCRIPT_PATH, userQuery, JSON.stringify(filters)]
         : [FAISS_SCRIPT_PATH, userQuery];
 
       const result = spawnSync(PYTHON_PATH, args, { encoding: "utf-8" });
-
       if (result.error) throw result.error;
 
       let faissChunks = JSON.parse(result.stdout || "[]");
@@ -101,8 +102,23 @@ app.post("/api/query", async (req, res) => {
     };
 
     const runWithContext = async (faissChunks, sourceLabel) => {
-      const reply = await callAIWithBatchChunks("mistral", userQuery, faissChunks);
-      return res.json({ result: reply, source: sourceLabel });
+      const reply = await callAIWithBatchChunks(
+        "mistral",
+        userQuery,
+        faissChunks
+      );
+
+      // timestamp when AI responds
+      const aiTimestamp = new Date().toISOString();
+
+      return res.json({
+        result: reply,
+        source: sourceLabel,
+        timestamps: {
+          user: userTimestamp,
+          ai: aiTimestamp,
+        },
+      });
     };
 
     if (isFirstQuery || USE_FAISS_ALWAYS) {
@@ -113,6 +129,10 @@ app.post("/api/query", async (req, res) => {
           result:
             "Sorry, I couldn't find any WHO alerts that match your question.",
           source: "faiss-empty",
+          timestamps: {
+            user: userTimestamp,
+            ai: new Date().toISOString(),
+          },
         });
 
       return await runWithContext(faissChunks, "faiss-first-query");
@@ -120,12 +140,19 @@ app.post("/api/query", async (req, res) => {
 
     const filteredMessages = messages.filter((m) => m.role !== "system");
     const aiText = await callAI("mistral", filteredMessages);
-    console.log("🧠 Mistral raw response:", aiText);
+    console.log("Mistral raw response:", aiText);
 
     const isGeneric = isGenericResponse(aiText);
 
     if (!isGeneric && !USE_FAISS_ALWAYS) {
-      return res.json({ result: aiText, source: "mistral-direct" });
+      return res.json({
+        result: aiText,
+        source: "mistral-direct",
+        timestamps: {
+          user: userTimestamp,
+          ai: new Date().toISOString(),
+        },
+      });
     }
 
     console.warn(
@@ -137,15 +164,18 @@ app.post("/api/query", async (req, res) => {
         result:
           "Sorry, I couldn't find anything relevant in the WHO alerts to answer your question.",
         source: "faiss-empty-fallback",
+        timestamps: {
+          user: userTimestamp,
+          ai: new Date().toISOString(),
+        },
       });
 
     return await runWithContext(faissChunks, "faiss-fallback");
   } catch (err) {
-    console.error("❌ /api/query error:", err);
+    console.error("/api/query error:", err);
     return res.status(500).json({ error: "Query failed." });
   }
 });
-
 
 // --- Endpoint: Rebuild embeddings ---
 app.get("/api/rebuild-embeddings", async (req, res) => {
@@ -160,11 +190,11 @@ app.get("/api/rebuild-embeddings", async (req, res) => {
         : res.status(500).json({ error: "Embedding generation failed" })
     );
   } catch (err) {
-    console.error("❌ Rebuild error:", err);
+    console.error("Rebuild error:", err);
     res.status(500).json({ error: "Rebuild failed" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

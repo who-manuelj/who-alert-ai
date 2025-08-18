@@ -5,6 +5,7 @@ import axios from "axios";
 interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  timestamp?: string;
 }
 
 interface FilterProps {
@@ -39,20 +40,21 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
     alertNumber: "",
   });
 
+  const [isLoading, setIsLoading] = useState(false); // <-- loading state
+
   const formatLabel = (key: string) => {
     const overrides: Record<string, string> = {
       publishedDateFrom: "Start Date",
       publishedDateTo: "End Date",
     };
-
-    if (overrides[key]) return overrides[key];
-
-    return key
-      .replace(/([A-Z])/g, " $1")
-      .replace(/^./, (str) => str.toUpperCase())
-      .trim();
+    return (
+      overrides[key] ||
+      key
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim()
+    );
   };
-
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -69,22 +71,26 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
     const userMessage: ChatMessage = {
       role: "user",
       content: `Filter search with criteria — ${filterText}`,
+      timestamp: new Date().toISOString(),
     };
 
     const updatedHistory = [...chatHistory, userMessage];
+    setChatHistory(updatedHistory);
+    setIsLoading(true); // <-- start loading
 
     try {
-      const res = await axios.post<{ result: string }>(
-        "http://localhost:5000/api/query",
-        {
-          messages: updatedHistory,
-          filters, // Optional: backend can use this for extra filtering
-        }
-      );
+      const res = await axios.post<{
+        result: string;
+        timestamps?: { user: string; ai: string };
+      }>("http://localhost:5000/api/query", {
+        messages: updatedHistory,
+        filters,
+      });
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: res.data.result || "No results found.",
+        timestamp: res.data.timestamps?.ai || new Date().toISOString(),
       };
 
       setChatHistory([...updatedHistory, assistantMessage]);
@@ -93,8 +99,11 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
       const errorMessage: ChatMessage = {
         role: "assistant",
         content: "An error occurred while processing your filter search.",
+        timestamp: new Date().toISOString(),
       };
       setChatHistory([...updatedHistory, errorMessage]);
+    } finally {
+      setIsLoading(false); // <-- stop loading
     }
   };
 
@@ -107,9 +116,12 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
           placeholder={formatLabel(key)}
           type={key.toLowerCase().includes("date") ? "date" : "text"}
           onChange={handleChange}
+          disabled={isLoading} // <-- disable inputs while loading
         />
       ))}
-      <button type="submit">Search</button>
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? "Searching..." : "Search"} {/* <-- show loading text */}
+      </button>
     </form>
   );
 };

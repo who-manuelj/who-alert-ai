@@ -201,3 +201,13 @@ pre {
 input, textarea, button {
   transition: all 0.2s ease-in-out;
 }
+
+/* Chat message timestamps */
+.chat-message .timestamp {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 0.25rem;
+  text-align: right;
+  font-style: italic;
+}

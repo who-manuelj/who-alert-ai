@@ -11,6 +11,7 @@ interface ChatBoxProps {
 type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
+  timestamp?: string; // <-- added timestamp
 };
 
 const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
@@ -24,27 +25,28 @@ const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
     const userMessage: ChatMessage = {
       role: "user",
       content: message.trim(),
+      timestamp: new Date().toISOString(), // timestamp at send time
     };
 
     const updatedHistory = [...chatHistory, userMessage];
+    setChatHistory(updatedHistory);
     setIsLoading(true);
 
     try {
-      const res = await axios.post<{ result: string }>(
-        "http://localhost:5000/api/query",
-        { messages: updatedHistory }
-      );
+      const res = await axios.post<{
+        result: string;
+        timestamps: { user: string; ai: string };
+      }>("http://localhost:5000/api/query", { messages: updatedHistory });
 
-      const aiResponse = res.data.result;
+      const { result: aiResponse, timestamps } = res.data;
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: aiResponse,
+        timestamp: timestamps.ai, // AI timestamp from backend
       };
 
-      const finalHistory = [...updatedHistory, assistantMessage];
-
-      setChatHistory(finalHistory);
+      setChatHistory([...updatedHistory, assistantMessage]);
       onResults(aiResponse);
       setMessage("");
     } catch (error) {
@@ -58,6 +60,9 @@ const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
+  const formatTimestamp = (iso?: string) =>
+    iso ? new Date(iso).toLocaleTimeString() : "";
+
   return (
     <div className="chatbox">
       <div className="chat-history">
@@ -66,7 +71,18 @@ const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
           .map((msg, idx) => (
             <div key={idx} className={`chat-message ${msg.role}`}>
               <strong>{msg.role === "user" ? "You" : "AI"}:</strong>
-              <p>{msg.content}</p>
+              <p>
+                {msg.content
+                  .split("\n")
+                  .map((line) => line.trimStart()) // remove extra spaces at line start
+                  .join("\n")
+                  .trim()}
+              </p>
+              {msg.timestamp && (
+                <span className="timestamp">
+                  {formatTimestamp(msg.timestamp)}
+                </span>
+              )}
             </div>
           ))}
         <div ref={endOfMessagesRef} />
