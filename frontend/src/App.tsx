@@ -9,7 +9,7 @@ type ChatMessage = {
 };
 
 function App() {
-  const [chatResult, setChatResult] = useState("");
+  const [, setChatResult] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
     {
       role: "system",

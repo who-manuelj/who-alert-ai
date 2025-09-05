@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
-const PYTHON_PATH = "python";
+const PYTHON_PATH = "/opt/venv/bin/python";
 const ALERTS_PATH = path.join(__dirname, "embeddings", "alert_chunks.json");
 const FAISS_SCRIPT_PATH = path.join(
   __dirname,
@@ -24,14 +24,20 @@ const FAISS_SCRIPT_PATH = path.join(
 // 🔧 CONFIG FLAG: Always use FAISS instead of AI fallback
 const USE_FAISS_ALWAYS = true;
 
-const allowedOrigins = ["http://localhost:5173"];
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5000",
+];
 
 app.use(
   cors({
-    origin: (origin, cb) =>
-      !origin || allowedOrigins.includes(origin)
-        ? cb(null, true)
-        : cb(new Error("CORS policy does not allow this origin"), false),
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // allow curl/Postman
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      console.warn("CORS denied for origin:", origin);
+      return cb(null, false); // deny gracefully
+    },
     credentials: true,
   })
 );
@@ -193,6 +199,21 @@ app.get("/api/rebuild-embeddings", async (req, res) => {
     console.error("Rebuild error:", err);
     res.status(500).json({ error: "Rebuild failed" });
   }
+});
+
+// --- Serve frontend build ---
+// Path resolution helpers (already imported above)
+const frontendPath = path.join(__dirname, "public");
+
+// Serve static files
+app.use(express.static(frontendPath));
+
+// Catch-all: for React Router, always send index.html
+app.get("/*splat", (req, res) => {
+  // Prevent overriding API routes
+  if (req.path.startsWith("/api"))
+    return res.status(404).json({ error: "Not found" });
+  res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 app.listen(PORT, () => {
