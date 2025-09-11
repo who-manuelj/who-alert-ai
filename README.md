@@ -1,12 +1,3 @@
-Got it 👍 — I remember the earlier context:
-
-- You originally used **Python** (`generate_embeddings.py`, `sentence-transformers`, FAISS bindings, etc.) for scraping + embedding.
-- Later, you removed **all Python dependencies** and rewrote those pieces in **Node.js** (using JS FAISS bindings and scraping logic in Express).
-- Now the backend is **pure Node.js + Express**, and the only requirement is `npm install`.
-
-Here’s a cleaned-up, **revised README** that matches the Node-only setup:
-
-````markdown
 # WHO Alerts AI Assistant
 
 This is a full-stack chatbot application that answers questions **strictly** based on the official [WHO Medical Product Alerts](https://www.who.int/teams/regulation-prequalification/incidents-and-SF/full-list-of-who-medical-product-alerts). It combines an AI model (Mistral) with a local FAISS vector search index to retrieve and summarize alert information from 2013 to present.
