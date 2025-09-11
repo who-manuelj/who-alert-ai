@@ -36,7 +36,6 @@ This is a full-stack chatbot application that answers questions **strictly** bas
 git clone https://github.com/YOUR_USERNAME/who-alerts-ai.git
 cd who-alerts-ai
 ```
-````
 
 ### 2. Install dependencies
 
@@ -88,6 +87,3 @@ GET /api/rebuild-embeddings
 - No Python runtime is required anymore.
 - Just ensure the backend server has enough disk space to cache `alert_chunks.json` and the FAISS index.
 
-```
-
-```
