@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { callAIWithBatchChunks, callAI } from "./helpers/helpers.js";
 import { searchEmbeddings } from "./search/search.js";
+import { exec } from "child_process";
 
 dotenv.config();
 
@@ -70,15 +71,15 @@ const ensureAlertChunks = async () => {
     alertsData = JSON.parse(fs.readFileSync(ALERTS_PATH, "utf-8"));
   } else {
     console.log(
-      "📥 No alert_chunks_with_embeds.json found. Scraping alerts..."
+      "No alert_chunks_with_embeds.json found. Scraping alerts..."
     );
     const rawData = await scrapeAlerts(true);
 
-    // ⚠️ NOTE: You must precompute embeddings separately and save to alert_chunks_with_embeds.json
+    // NOTE: You must precompute embeddings separately and save to alert_chunks_with_embeds.json
     // Here we just save raw data for reference
     fs.writeFileSync(ALERTS_PATH, JSON.stringify(rawData, null, 2));
     console.log(
-      "Scraped and saved alert_chunks_with_embeds.json (embeddings missing)."
+      "Scraped and saved alert_chunks.json (embeddings missing)."
     );
   }
 };
@@ -168,6 +169,36 @@ app.post("/api/query", async (req, res) => {
     console.error("/api/query error:", err);
     return res.status(500).json({ error: "Query failed." });
   }
+});
+
+app.post("/api/rescrape", async (req, res) => {
+  try {
+    console.log("♻️  Re-scraping WHO alerts...");
+    const rawData = await scrapeAlerts(true);
+
+    fs.writeFileSync(ALERTS_PATH.replace("_with_embeds", ""), JSON.stringify(rawData, null, 2));
+    console.log(`Scraped ${rawData.length} alerts.`);
+    res.json({ status: "ok", count: rawData.length });
+  } catch (err) {
+    console.error("Rescrape failed:", err);
+    res.status(500).json({ error: "Rescrape failed" });
+  }
+});
+
+app.get("/api/rebuild-embeddings", async (req, res) => {
+  const scriptPath = path.join(__dirname, "embeddings/generate_embeddings.mjs");
+
+  res.json({ status: "started", message: "Embedding rebuild started in background" });
+
+  // Run script asynchronously
+  const process = exec(`node ${scriptPath}`);
+
+  process.stdout.on("data", (data) => console.log("[EMBEDDINGS]", data.toString().trim()));
+  process.stderr.on("data", (data) => console.error("[EMBEDDINGS ERROR]", data.toString().trim()));
+
+  process.on("close", (code) => {
+    console.log(`Embedding rebuild finished with code ${code}`);
+  });
 });
 
 // --- Serve frontend build ---
