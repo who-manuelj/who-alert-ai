@@ -1,89 +1,141 @@
-# WHO Alerts AI Assistant
+# WHO-Alert-AI
 
-This is a full-stack chatbot application that answers questions **strictly** based on the official [WHO Medical Product Alerts](https://www.who.int/teams/regulation-prequalification/incidents-and-SF/full-list-of-who-medical-product-alerts). It combines an AI model (Mistral) with a local FAISS vector search index to retrieve and summarize alert information from 2013 to present.
+A Node.js-based AI assistant for querying WHO medical product alerts (2013–2025) using semantic search and Mistral API embeddings. The project includes a frontend, a backend, and optional Docker setup for easy deployment.
 
 ---
 
 ## Features
 
-- Search WHO alerts using natural language (e.g., “What were the alerts from Nigeria in 2024?”)
-- Hybrid RAG (Retrieval-Augmented Generation) pipeline using FAISS + Mistral
-- Multi-turn chat with persistent memory and semantic fallback
-- Filter-based structured form query support
-- Uses either local Mistral via [Ollama](https://ollama.com) or a hosted Mistral API
-- Built for fast, domain-specific querying over structured health data
+* **Query WHO Alerts** using natural language.
+* **Semantic search** via Mistral API embeddings.
+* **Rebuild embeddings** via API endpoint when new alerts are added.
+* **Dockerized full-stack** (frontend + backend) with persistent embeddings.
+* **Frontend** built with a separate stage and served statically by the backend.
 
 ---
 
-## Tech Stack
+## Repository Structure
 
-| Layer     | Tech                          |
-| --------- | ----------------------------- |
-| Frontend  | React + TypeScript + Vite     |
-| Backend   | Node.js + Express             |
-| Vector DB | FAISS (Node.js bindings)      |
-| Embedding | MiniLM (via JS wrapper)       |
-| LLM       | Mistral (local or remote API) |
-| Data      | WHO medical alert dataset     |
-
----
-
-## Setup Instructions
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/who-alerts-ai.git
-cd who-alerts-ai
+```
+WHO-Alert-AI/
+├── backend/
+│   ├── embeddings/
+│   │   ├── alert_chunks.json
+│   │   └── alert_chunks_with_embeds.json
+│   ├── search/
+│   ├── helpers/
+│   ├── scraper/
+│   ├── index.js
+│   └── package.json
+├── frontend/
+│   ├── package.json
+│   └── ... (frontend source files)
+├── Dockerfile
+└── README.md
 ```
 
-### 2. Install dependencies
+* `backend/embeddings` — stores raw alert JSON and precomputed embeddings.
+* `frontend/` — frontend source code (built into `backend/public` during Docker build).
+* `backend/index.js` — Express server with API endpoints.
+* `backend/embeddings/generate_embeddings.mjs` — script to generate embeddings using Mistral API.
+
+---
+
+## Environment Variables
+
+Create a `.env` file in `backend/` with:
+
+```env
+MISTRAL_API_URL=https://api.mistral.ai/v1/chat/completions
+MISTRAL_API_KEY=<your_mistral_api_key>
+MISTRAL_MODEL=mistral-medium
+
+EMBEDDING_API_URL=https://api.mistral.ai/v1/embeddings
+EMBEDDING_MODEL=mistral-embed
+EMBEDDING_BATCH_SIZE=8
+```
+
+---
+
+## Available API Endpoints
+
+| Endpoint                  | Method | Description                                                                                              |
+| ------------------------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| `/api/alerts`             | GET    | Returns all cached WHO alerts.                                                                           |
+| `/api/query`              | POST   | Query alerts with semantic search. Request body: `{ messages: [{role, content}], filters: {} }`          |
+| `/api/rescrape`           | POST   | Rescrape the WHO Medical Alerts Website with new data. (The embeddings will still need to be rebuilt.)`  |
+| `/api/rebuild-embeddings` | POST   | Regenerates embeddings for all alerts using Mistral API. JSON files are updated in `backend/embeddings`. |
+
+---
+
+## Docker Setup
+
+### Build the Docker image
 
 ```bash
+docker build -t who-alert-ai .
+```
+
+### Run the container with persistent embeddings
+
+```bash
+docker run -p 5000:5000 -v ${PWD}/backend/embeddings:/app/backend/embeddings who-alert-ai
+```
+
+* `-v` ensures your JSON files persist between container runs.
+
+### Access the app
+
+* Backend API: `http://localhost:5000`
+* Frontend: `http://localhost:5000` (served statically from `backend/public`)
+
+---
+
+## Local Development (Optional)
+
+If you prefer to run without Docker:
+
+```bash
+# Backend
+cd backend
 npm install
+npm start
+
+# Frontend
+cd frontend
+npm install
+npm run build
 ```
 
-### 3. Start the backend and frontend
+Ensure `.env` is present in `backend/` with the correct API keys.
+
+---
+
+## Regenerating Embeddings
+
+You can regenerate embeddings either by:
+
+1. Calling the rebuild endpoint:
 
 ```bash
-npm run dev
+curl -X POST http://localhost:5000/api/rebuild-embeddings
 ```
 
-This will start both the backend API and the React frontend.
+2. Or running directly inside backend:
 
----
-
-## How It Works
-
-- **First user query** triggers FAISS search over the alert dataset using MiniLM embeddings.
-- **Top-N chunks** are injected into Mistral’s context window for retrieval-augmented generation.
-- **Mistral LLM** responds using only the retrieved WHO alert data.
-- **Multi-turn conversations** retain context, unless the model responds too generically, in which case FAISS is triggered again.
-- **Form-based filters** (e.g., "Year: 2023", "Country: Nigeria") also use the same `/api/query` endpoint and update the chat history directly.
-
----
-
-## Data Handling
-
-- On **first server start**, if `alert_chunks.json` and the FAISS index do not exist:
-
-  - The backend scrapes the WHO medical product alerts website
-  - Saves parsed alerts to `alert_chunks.json`
-  - Builds FAISS embeddings from the scraped data
-
-- On subsequent queries, the backend loads cached alerts and embeddings for fast search.
-
-- You can **force a rebuild** of alerts and embeddings at any time by calling:
-
-```http
-GET /api/rebuild-embeddings
+```bash
+node embeddings/generate_embeddings.mjs
 ```
 
+> JSON files are stored in `backend/embeddings` (and persisted if using Docker volume).
+
 ---
 
-## Deployment
+## Notes
 
-- Can be deployed on platforms like **Netlify** (frontend) + **Render/Heroku/Vercel** (backend).
-- No Python runtime is required anymore.
-- Just ensure the backend server has enough disk space to cache `alert_chunks.json` and the FAISS index.
+* Fully Node.js — no Python.
+* Uses **Mistral API embeddings** for semantic search.
+* Frontend build is included in the Docker image and served by Express.
+* Supports volume mounting for embeddings to avoid rebuilding on every container start.
 
+---
