@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import axios from "axios";
+import { api } from "../api"; // adjust relative path
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -79,18 +79,15 @@ const FilterForm = ({ chatHistory, setChatHistory }: FilterProps) => {
     setIsLoading(true); // <-- start loading
 
     try {
-      const res = await axios.post<{
-        result: string;
-        timestamps?: { user: string; ai: string };
-      }>("http://localhost:5000/api/query", {
+      const res = await api.post("/api/query", {
         messages: updatedHistory,
         filters,
       });
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        content: res.data.result || "No results found.",
-        timestamp: res.data.timestamps?.ai || new Date().toISOString(),
+        content: res.result || "No results found.",
+        timestamp: res.timestamps?.ai || new Date().toISOString(),
       };
 
       setChatHistory([...updatedHistory, assistantMessage]);

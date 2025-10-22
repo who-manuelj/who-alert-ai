@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
-import axios from "axios";
+import { api } from "../api"; // adjust relative path
 
 interface ChatBoxProps {
   onResults: (result: string) => void;
@@ -33,12 +33,8 @@ const ChatBox = ({ onResults, chatHistory, setChatHistory }: ChatBoxProps) => {
     setIsLoading(true);
 
     try {
-      const res = await axios.post<{
-        result: string;
-        timestamps: { user: string; ai: string };
-      }>("http://localhost:5000/api/query", { messages: updatedHistory });
-
-      const { result: aiResponse, timestamps } = res.data;
+      const res = await api.post("/api/query", { messages: updatedHistory });
+      const { result: aiResponse, timestamps } = res;
 
       const assistantMessage: ChatMessage = {
         role: "assistant",

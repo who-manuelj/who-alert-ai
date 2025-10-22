@@ -21,6 +21,7 @@ const ALERTS_PATH = path.join(
   "embeddings",
   "alert_chunks_with_embeds.json"
 );
+const MISTRAL_MODEL = process.env.MISTRAL_MODEL || "mistral-small-latest";
 
 // 🔧 CONFIG FLAG: Always use semantic search instead of AI fallback
 const USE_SEMANTIC_SEARCH_ALWAYS = true;
@@ -28,7 +29,11 @@ const USE_SEMANTIC_SEARCH_ALWAYS = true;
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  "http://localhost:5000",
+  "http://localhost:4173",   // Vite preview
+  "http://127.0.0.1:4173",   // Alternate localhost mapping
+  "http://localhost:5000",   // backend itself (safe to keep)
+  "http://localhost:3000",   
+  "http://127.0.0.1:3000",   
 ];
 
 app.use(
@@ -37,11 +42,12 @@ app.use(
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       console.warn("CORS denied for origin:", origin);
-      return cb(null, false);
+      return cb(new Error("CORS not allowed"), false);
     },
     credentials: true,
   })
 );
+
 
 app.use(express.json());
 
@@ -108,7 +114,7 @@ app.post("/api/query", async (req, res) => {
     };
 
     const runWithContext = async (chunks, sourceLabel) => {
-      const reply = await callAIWithBatchChunks("mistral", userQuery, chunks);
+      const reply = await callAIWithBatchChunks(MISTRAL_MODEL, userQuery, chunks);
       return res.json({
         result: reply,
         source: sourceLabel,
@@ -121,7 +127,7 @@ app.post("/api/query", async (req, res) => {
 
     // Always use semantic search first
     if (isFirstQuery || USE_SEMANTIC_SEARCH_ALWAYS) {
-      console.log("🔍 Semantic search triggered (first query or forced)");
+      console.log("Semantic search triggered (first query or forced)");
       const results = await runSemanticSearch();
       if (!results.length) {
         return res.json({
@@ -138,7 +144,7 @@ app.post("/api/query", async (req, res) => {
     }
 
     const filteredMessages = messages.filter((m) => m.role !== "system");
-    const aiText = await callAI("mistral", filteredMessages);
+    const aiText = await callAI(MISTRAL_MODEL, filteredMessages);
 
     if (!isGenericResponse(aiText) && !USE_SEMANTIC_SEARCH_ALWAYS) {
       return res.json({
@@ -151,7 +157,7 @@ app.post("/api/query", async (req, res) => {
       });
     }
 
-    console.warn("⚠️ Falling back to semantic search");
+    console.warn("Falling back to semantic search");
     const results = await runSemanticSearch();
     if (!results.length) {
       return res.json({
@@ -173,7 +179,7 @@ app.post("/api/query", async (req, res) => {
 
 app.post("/api/rescrape", async (req, res) => {
   try {
-    console.log("♻️  Re-scraping WHO alerts...");
+    console.log("Re-scraping WHO alerts...");
     const rawData = await scrapeAlerts(true);
 
     fs.writeFileSync(ALERTS_PATH.replace("_with_embeds", ""), JSON.stringify(rawData, null, 2));

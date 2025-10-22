@@ -1,8 +1,14 @@
+// backend/helpers/helpers.js
 import dotenv from "dotenv";
 dotenv.config();
 
+/**
+ * Call AI model (local LLM or Mistral API)
+ * @param {string} model - Model name
+ * @param {Array<{role: string, content: string}>} messages
+ */
 export async function callAI(model, messages) {
-  const useLocal = process.env.USE_LOCAL_LLM === "true";
+  const useLocal = process.env.USE_LOCAL_LLM === "true"; // properly parse boolean
 
   if (useLocal) {
     const aiRes = await fetch("http://localhost:11434/api/chat", {
@@ -15,9 +21,11 @@ export async function callAI(model, messages) {
         stream: false,
       }),
     });
+
     const aiData = await aiRes.json();
     return aiData?.message?.content || "";
   } else {
+
     const aiRes = await fetch(process.env.MISTRAL_API_URL, {
       method: "POST",
       headers: {
@@ -31,12 +39,17 @@ export async function callAI(model, messages) {
         stream: false,
       }),
     });
+
     const aiData = await aiRes.json();
+
     return aiData?.choices?.[0]?.message?.content || "";
   }
 }
 
-// 📦 Helper to create FAISS context string for batch
+/**
+ * Build a readable string from FAISS chunks for context
+ * @param {Array} chunks
+ */
 export function buildContextChunks(chunks) {
   return chunks
     .slice(0, 5)
@@ -52,7 +65,13 @@ export function buildContextChunks(chunks) {
     .join("\n\n");
 }
 
-// 🔹 Updated: Batch summarize + final merge
+/**
+ * Batch process FAISS chunks through AI, summarize and merge
+ * @param {string} model
+ * @param {string} userQuery
+ * @param {Array} faissChunks
+ * @param {number} batchSize
+ */
 export async function callAIWithBatchChunks(
   model,
   userQuery,
@@ -77,10 +96,12 @@ export async function callAIWithBatchChunks(
         } chunks`
       );
 
-      return await callAI(model, [
+      const summary = await callAI(model, [
         { role: "system", content: systemPrompt },
         { role: "user", content: userQuery },
       ]);
+
+      return summary;
     })
   );
 
@@ -89,10 +110,12 @@ export async function callAIWithBatchChunks(
     "\n\n"
   )}`;
 
-  console.log("🧠 Merging all batch summaries into final output");
+  console.log("Merging all batch summaries into final output");
 
-  return await callAI(model, [
+  const finalOutput = await callAI(model, [
     { role: "system", content: mergePrompt },
     { role: "user", content: userQuery },
   ]);
+
+  return finalOutput;
 }

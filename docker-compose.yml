@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: who-backend
+    ports:
+      - "5000:5000"
+    networks:
+      - who-network
+    volumes:
+      - ./backend:/app
+    environment:
+      - NODE_ENV=production
+
+  frontend:
+    build: ./frontend
+    container_name: who-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    networks:
+      - who-network
+
+networks:
+  who-network:
+    driver: bridge
