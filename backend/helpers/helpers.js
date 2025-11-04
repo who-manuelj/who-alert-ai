@@ -4,11 +4,9 @@ dotenv.config();
 
 /**
  * Call AI model (local LLM or Mistral API)
- * @param {string} model - Model name
- * @param {Array<{role: string, content: string}>} messages
  */
 export async function callAI(model, messages) {
-  const useLocal = process.env.USE_LOCAL_LLM === "true"; // properly parse boolean
+  const useLocal = process.env.USE_LOCAL_LLM === "true";
 
   if (useLocal) {
     const aiRes = await fetch("http://localhost:11434/api/chat", {
@@ -21,11 +19,9 @@ export async function callAI(model, messages) {
         stream: false,
       }),
     });
-
     const aiData = await aiRes.json();
     return aiData?.message?.content || "";
   } else {
-
     const aiRes = await fetch(process.env.MISTRAL_API_URL, {
       method: "POST",
       headers: {
@@ -39,38 +35,57 @@ export async function callAI(model, messages) {
         stream: false,
       }),
     });
-
     const aiData = await aiRes.json();
-
     return aiData?.choices?.[0]?.message?.content || "";
   }
 }
 
 /**
- * Build a readable string from FAISS chunks for context
- * @param {Array} chunks
+ * Build readable string from FAISS chunks for context
  */
-export function buildContextChunks(chunks) {
+export function buildContextChunks(chunks, maxChars = 1000) {
   return chunks
-    .slice(0, 5)
+    .slice(0, 3) // limit for model context
     .map((chunk, i) => {
-      const content =
-        chunk.content.length > 2500
-          ? chunk.content.slice(0, 2500) + "..."
-          : chunk.content;
-      return `${i + 1}. ${chunk.title}\nPublished: ${
-        chunk.publishedDate
-      }\n${content}\nLink: ${chunk.link}`;
+      const text = chunk.chunkText || "";
+      const safeText =
+        text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
+      return `${i + 1}. ${chunk.title} (${chunk.year})
+Published: ${chunk.publishedDate || "Unknown"}
+${safeText}
+Link: ${chunk.link}`;
     })
     .join("\n\n");
 }
 
 /**
- * Batch process FAISS chunks through AI, summarize and merge
- * @param {string} model
- * @param {string} userQuery
- * @param {Array} faissChunks
- * @param {number} batchSize
+ * Build robust prompt for a single chunk
+ */
+function buildChunkPrompt(chunk, userQuery) {
+  const text = chunk.chunkText || "";
+  return `
+You are a WHO Medical Product Alert assistant.
+Summarize the following alert chunk in a structured format.
+Include the following fields, even if empty:
+- Title
+- Year
+- Published date
+- Link
+- Key points (if none, write: "No details available, see link.")
+
+User query: "${userQuery}"
+
+Alert chunk:
+Title: ${chunk.title}
+Year: ${chunk.year}
+Published date: ${chunk.publishedDate || "Unknown"}
+Link: ${chunk.link}
+Content: ${text}
+`;
+}
+
+/**
+ * Summarize FAISS chunks individually, then merge into a single coherent response
  */
 export async function callAIWithBatchChunks(
   model,
@@ -78,44 +93,71 @@ export async function callAIWithBatchChunks(
   faissChunks,
   batchSize = 5
 ) {
-  // Step 1: Split into batches
+  if (!faissChunks || faissChunks.length === 0) return "No relevant alerts found.";
+
+  // 1️⃣ Split into batches
   const groups = [];
   for (let i = 0; i < faissChunks.length; i += batchSize) {
     groups.push(faissChunks.slice(i, i + batchSize));
   }
 
-  // Step 2: Summarize each batch individually
-  const batchSummaries = await Promise.all(
-    groups.map(async (group, idx) => {
-      const contextString = buildContextChunks(group);
-      const systemPrompt = `You are a WHO alert assistant. Summarize the following WHO alert chunks concisely:\n\n${contextString}`;
-
+  // 2️⃣ Summarize each chunk individually
+  const chunkSummaries = [];
+  for (const group of groups) {
+    for (const [idx, chunk] of group.entries()) {
+      console.log(`\n🧠 Summarizing chunk ${idx + 1}/${faissChunks.length}`);
       console.log(
-        `🧠 Summarizing batch ${idx + 1}/${groups.length} with ${
-          group.length
-        } chunks`
+        `  Title: ${chunk.title}, year=${chunk.year}, chunkTextLength=${chunk.chunkText?.length || 0}`
+      );
+      console.log(
+        `  Preview: ${chunk.chunkText?.slice(0, 100).replace(/\n/g, " ")}...`
       );
 
-      const summary = await callAI(model, [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userQuery },
-      ]);
+      const chunkPrompt = buildChunkPrompt(chunk, userQuery);
 
-      return summary;
-    })
-  );
+      let summary = await callAI(model, [{ role: "system", content: chunkPrompt }]);
 
-  // Step 3: Merge all batch summaries into a single clean summary
-  const mergePrompt = `You are a WHO alert assistant. Merge the following batch summaries into a single, clean, concise summary. Keep clear formatting (title, date, summary, link). Respond with a clear bullet-point list if multiple alerts are relevant:\n\n${batchSummaries.join(
-    "\n\n"
-  )}`;
+      if (!summary || summary.trim() === "") {
+        console.warn(`⚠️ Chunk ${idx + 1} returned empty summary. Using placeholder.`);
+        summary = `- Title: ${chunk.title}
+- Year: ${chunk.year}
+- Published date: ${chunk.publishedDate || "Unknown"}
+- Link: ${chunk.link}
+- Key points: No details available, see link.`;
+      }
 
-  console.log("Merging all batch summaries into final output");
+      chunkSummaries.push(summary);
+    }
+  }
 
-  const finalOutput = await callAI(model, [
-    { role: "system", content: mergePrompt },
-    { role: "user", content: userQuery },
-  ]);
+  // 3️⃣ Merge all chunk summaries into one coherent structured response
+  console.log("\n🧩 Merging all chunk summaries into final output");
 
+  const mergePrompt = `
+You are a WHO alert assistant.
+You have been provided with multiple alert summaries from FAISS context.
+User query: "${userQuery}"
+
+Instruction:
+- Merge all summaries into ONE single, coherent structured response.
+- Remove duplicates.
+- Keep structured format: Title, Year, Published date, Link, Key points.
+- Preserve order using Published date
+- Consolidate similar points where possible, and combine information for items with the same title.
+- Present as a single response, NOT separate chunk outputs.
+- Do NOT add external information beyond the provided summaries.
+
+Summaries to merge:
+${chunkSummaries.join("\n\n")}
+`;
+
+  let finalOutput = await callAI(model, [{ role: "system", content: mergePrompt }]);
+
+  if (!finalOutput || finalOutput.trim() === "") {
+    console.warn("⚠️ AI returned empty summary after merging. Using fallback concatenation.");
+    finalOutput = chunkSummaries.join("\n\n");
+  }
+
+  console.log(`📝 Final AI output length: ${finalOutput?.length}`);
   return finalOutput;
 }

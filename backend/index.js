@@ -102,19 +102,42 @@ app.post("/api/query", async (req, res) => {
   const userQuery = userMessages.at(-1)?.content || "";
   const isFirstQuery = userMessages.length === 1;
 
-  console.log("User query:", userQuery);
-  console.log("Filters:", filters);
+  console.log("📥 User query:", userQuery);
+  console.log("📌 Filters:", filters);
 
   const userTimestamp = new Date().toISOString();
 
   try {
     const runSemanticSearch = async () => {
       const results = await searchEmbeddings(userQuery, filters, 20);
+
+      console.log("🔍 FAISS search returned chunks:", results.length);
+      results.forEach((c, i) => {
+        console.log(
+          `  ${i + 1}. ${c.title} | year: ${c.year} | chunkText length: ${c.chunkText?.length || 0}`
+        );
+      });
+
       return results;
     };
 
     const runWithContext = async (chunks, sourceLabel) => {
       const reply = await callAIWithBatchChunks(MISTRAL_MODEL, userQuery, chunks);
+
+      console.log("📝 Raw AI output length:", reply?.length);
+      if (!reply || reply.trim() === "") {
+        console.warn("⚠️ AI returned empty summary. Returning fallback message.");
+        return res.json({
+          result:
+            "Sorry, I was unable to summarize the WHO alerts for this query. Try rephrasing or check the raw alerts directly.",
+          source: sourceLabel,
+          timestamps: {
+            user: userTimestamp,
+            ai: new Date().toISOString(),
+          },
+        });
+      }
+
       return res.json({
         result: reply,
         source: sourceLabel,
@@ -127,7 +150,7 @@ app.post("/api/query", async (req, res) => {
 
     // Always use semantic search first
     if (isFirstQuery || USE_SEMANTIC_SEARCH_ALWAYS) {
-      console.log("Semantic search triggered (first query or forced)");
+      console.log("⚡ Semantic search triggered (first query or forced)");
       const results = await runSemanticSearch();
       if (!results.length) {
         return res.json({
@@ -157,7 +180,7 @@ app.post("/api/query", async (req, res) => {
       });
     }
 
-    console.warn("Falling back to semantic search");
+    console.warn("🔄 Falling back to semantic search");
     const results = await runSemanticSearch();
     if (!results.length) {
       return res.json({
@@ -176,6 +199,7 @@ app.post("/api/query", async (req, res) => {
     return res.status(500).json({ error: "Query failed." });
   }
 });
+
 
 app.post("/api/rescrape", async (req, res) => {
   try {

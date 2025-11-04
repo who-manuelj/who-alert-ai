@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { embedQuery } from "./embedQuery.js"; // use our centralized embedding function
+import { embedQuery } from "./embedQuery.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,53 +49,81 @@ export function cosine(a, b) {
 }
 
 /**
- * Parse date in YYYY-MM-DD format.
- */
-function parseYyyyMmDd(s) {
-  if (!s) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return null;
-  return new Date(+m[1], +m[2] - 1, +m[3]);
-}
-
-/**
  * Filter documents by year/date range.
  */
 export function filterDocs(docs, { year, dateFrom, dateTo } = {}) {
-  const from = parseYyyyMmDd(dateFrom);
-  const to = parseYyyyMmDd(dateTo);
+  const from = dateFrom ? new Date(dateFrom) : null;
+  const to = dateTo ? new Date(dateTo) : null;
 
   return docs.filter((d) => {
-    const dt = new Date(d.publishedDate);
-    if (Number.isInteger(year) && dt.getUTCFullYear() !== year) return false;
-    if (from && dt < from) return false;
-    if (to && dt > to) return false;
+    if (Number.isInteger(year) && d.year !== year) return false;
+
+    if ((from || to) && d.publishedDate) {
+      const dt = new Date(d.publishedDate);
+      if (from && dt < from) return false;
+      if (to && dt > to) return false;
+    }
+
     return true;
   });
 }
 
 /**
  * Search embeddings with cosine similarity and optional filtering.
- * @param {string} query - User query string
- * @param {object} filters - Optional filters { year, dateFrom, dateTo }
- * @param {number} topK - Number of results to return
+ * Automatically detects a year in the query and filters by it.
  */
-export async function searchEmbeddings(query, filters = {}, topK = 20) {
+export async function searchEmbeddings(query, filters = {}, topK = 10) {
   const docs = loadEmbeddings();
 
-  // 1. Get embedding for query
+  // 1️⃣ Extract numeric year from query (if any)
+  const yearMatch = query.match(/\b(20\d{2})\b/);
+  const queryYear = yearMatch ? parseInt(yearMatch[1], 10) : null;
+  if (queryYear) {
+    console.log(`🗓 Detected year in query: ${queryYear}`);
+  }
+
+  // 2️⃣ Filter docs: combine explicit filters + queryYear
+  const filteredDocs = filterDocs(docs, { ...filters, year: queryYear });
+
+  if (!filteredDocs.length) {
+    console.warn(
+      "⚠️ No alerts match the year/filter criteria. Using full corpus."
+    );
+  }
+
+  const candidateDocs = filteredDocs.length ? filteredDocs : docs;
+
+  // 3️⃣ Compute embedding for query
   const queryEmbedding = await embedQuery(query);
 
-  // 2. Filter documents by year/date
-  const filteredDocs = filterDocs(docs, filters);
-
-  // 3. Rank by cosine similarity
-  const scored = filteredDocs.map((doc) => ({
+  // 4️⃣ Rank by cosine similarity
+  const scored = candidateDocs.map((doc) => ({
     ...doc,
     score: cosine(queryEmbedding, doc.embedding),
   }));
-
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, topK);
+  // 5️⃣ Take topK chunks
+  const topChunks = scored.slice(0, topK);
+
+  // 6️⃣ Logging for debugging
+  console.log("🔍 FAISS search returned chunks:", topChunks.length);
+  topChunks.forEach((c, i) => {
+    console.log(
+      `  ${i + 1}. ${c.title} | year: ${c.year} | chunkText length: ${
+        c.chunkText?.length || 0
+      }`
+    );
+  });
+
+  // 7️⃣ Return chunks with full chunkText for AI summarization
+  return topChunks.map((c) => ({
+    title: c.title,
+    link: c.link,
+    year: c.year,
+    chunkIndex: c.chunkIndex,
+    chunkText: c.chunkText,
+    publishedDate: c.publishedDate,
+    embedding: c.embedding,
+  }));
 }
