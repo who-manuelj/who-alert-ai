@@ -92,6 +92,7 @@ async function main() {
       allChunks.push({
         title: alert.title,
         link: alert.link,
+        publishedDate: alert.publishedDate,  // <-- carry forward
         year: alert.year,
         chunkIndex: idx,
         chunkText,

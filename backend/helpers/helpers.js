@@ -139,10 +139,10 @@ You have been provided with multiple alert summaries from FAISS context.
 User query: "${userQuery}"
 
 Instruction:
-- Merge all summaries into ONE single, coherent structured response.
+- Merge all summaries into ONE single, coherent structured response according to the user's query.
 - Remove duplicates.
 - Keep structured format: Title, Year, Published date, Link, Key points.
-- Preserve order using Published date
+- Order your summaries using the published date and year, or use the N°# in the title.
 - Consolidate similar points where possible, and combine information for items with the same title.
 - Present as a single response, NOT separate chunk outputs.
 - Do NOT add external information beyond the provided summaries.
