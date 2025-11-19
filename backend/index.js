@@ -27,14 +27,18 @@ const MISTRAL_MODEL = process.env.MISTRAL_MODEL || "mistral-small-latest";
 const USE_SEMANTIC_SEARCH_ALWAYS = true;
 
 const allowedOrigins = [
+  // --- Local development ---
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  "http://localhost:4173",   // Vite preview
-  "http://127.0.0.1:4173",   // Alternate localhost mapping
-  "http://localhost:5000",   // backend itself (safe to keep)
-  "http://localhost:3000",   
-  "http://127.0.0.1:3000",   
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+  "http://localhost:5000",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  // --- Production frontend on OKD ---
+  "https://frontend-who-alert-ai.app.cern.ch"
 ];
+
 
 app.use(
   cors({
