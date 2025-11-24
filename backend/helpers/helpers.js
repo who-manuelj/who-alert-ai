@@ -3,53 +3,36 @@ import dotenv from "dotenv";
 dotenv.config();
 
 /**
- * Call AI model (local LLM or Mistral API)
+ * Call AI model (Mistral API)
  */
 export async function callAI(model, messages) {
-  const useLocal = process.env.USE_LOCAL_LLM === "true";
+  const aiRes = await fetch(process.env.MISTRAL_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: process.env.MISTRAL_MODEL,
+      messages,
+      temperature: 0.7,
+      stream: false,
+    }),
+  });
 
-  if (useLocal) {
-    const aiRes = await fetch("http://localhost:11434/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.7,
-        stream: false,
-      }),
-    });
-    const aiData = await aiRes.json();
-    return aiData?.message?.content || "";
-  } else {
-    const aiRes = await fetch(process.env.MISTRAL_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.MISTRAL_MODEL,
-        messages,
-        temperature: 0.7,
-        stream: false,
-      }),
-    });
-    const aiData = await aiRes.json();
-    return aiData?.choices?.[0]?.message?.content || "";
-  }
+  const aiData = await aiRes.json();
+  return aiData?.choices?.[0]?.message?.content || "";
 }
 
 /**
- * Build readable string from FAISS chunks for context
+ * Build readable context from FAISS chunks
  */
-export function buildContextChunks(chunks, maxChars = 1000) {
+export function buildContextChunks(chunks, maxChars = 1000, maxChunks = 20) {
   return chunks
-    .slice(0, 3) // limit for model context
+    .slice(0, maxChunks)
     .map((chunk, i) => {
       const text = chunk.chunkText || "";
-      const safeText =
-        text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
+      const safeText = text.length > maxChars ? text.slice(0, maxChars) + "..." : text;
       return `${i + 1}. ${chunk.title} (${chunk.year})
 Published: ${chunk.publishedDate || "Unknown"}
 ${safeText}
@@ -59,105 +42,84 @@ Link: ${chunk.link}`;
 }
 
 /**
- * Build robust prompt for a single chunk
+ * Respond to user query with FAISS context
+ * - If query matches a specific alert title, focus on that chunk
+ * - Otherwise, provide context from top-N chunks
  */
-function buildChunkPrompt(chunk, userQuery) {
-  const text = chunk.chunkText || "";
-  return `
+export async function respondToQuery(model, userQuery, faissChunks) {
+  if (!faissChunks || faissChunks.length === 0) return "No relevant alerts found.";
+
+  // 1️⃣ Try exact match for alert title
+  const exactMatch = faissChunks.find(c =>
+    userQuery.toLowerCase().includes(c.title.toLowerCase())
+  );
+
+  if (exactMatch) {
+    const prompt = `
 You are a WHO Medical Product Alert assistant.
-Summarize the following alert chunk in a structured format.
-Include the following fields, even if empty:
+Answer the user's query using ONLY the following alert:
+Title: ${exactMatch.title}
+Year: ${exactMatch.year}
+Published date: ${exactMatch.publishedDate || "Unknown"}
+Link: ${exactMatch.link}
+Content: ${exactMatch.chunkText}
+
+User query: "${userQuery}"
+
+Respond in a structured format with:
 - Title
 - Year
 - Published date
 - Link
 - Key points (if none, write: "No details available, see link.")
+Do NOT include information beyond this alert.
+    `;
+    return await callAI(model, [{ role: "system", content: prompt }]);
+  }
+
+  // 2️⃣ General query mode: build context from top chunks
+  const contextText = buildContextChunks(faissChunks, 2000, 15); // 15 chunks, 2k chars each
+
+  const generalPrompt = `
+You are a WHO Medical Product Alert assistant.
+Use the context below to answer the user's query as completely and accurately as possible.
 
 User query: "${userQuery}"
 
+Context:
+${contextText}
+
+Instruction:
+- Focus on answering the user's query.
+- Present structured information (Title, Year, Published date, Link, Key points).
+- Remove duplicates and consolidate similar alerts.
+- Do NOT add information beyond the provided context.
+    `;
+
+  return await callAI(model, [{ role: "system", content: generalPrompt }]);
+}
+
+/**
+ * Build chunk-specific prompt (used in previous batch summarization, optional)
+ */
+export function buildChunkPrompt(chunk, userQuery) {
+  const text = chunk.chunkText || "";
+  return `
+You are a WHO Medical Product Alert assistant.
+Answer the user's query using only this alert chunk.
+User query: "${userQuery}"
 Alert chunk:
 Title: ${chunk.title}
 Year: ${chunk.year}
 Published date: ${chunk.publishedDate || "Unknown"}
 Link: ${chunk.link}
 Content: ${text}
+
+Respond in structured format:
+- Title
+- Year
+- Published date
+- Link
+- Key points
 `;
-}
-
-/**
- * Summarize FAISS chunks individually, then merge into a single coherent response
- */
-export async function callAIWithBatchChunks(
-  model,
-  userQuery,
-  faissChunks,
-  batchSize = 5
-) {
-  if (!faissChunks || faissChunks.length === 0) return "No relevant alerts found.";
-
-  // 1️⃣ Split into batches
-  const groups = [];
-  for (let i = 0; i < faissChunks.length; i += batchSize) {
-    groups.push(faissChunks.slice(i, i + batchSize));
-  }
-
-  // 2️⃣ Summarize each chunk individually
-  const chunkSummaries = [];
-  for (const group of groups) {
-    for (const [idx, chunk] of group.entries()) {
-      console.log(`\n🧠 Summarizing chunk ${idx + 1}/${faissChunks.length}`);
-      console.log(
-        `  Title: ${chunk.title}, year=${chunk.year}, chunkTextLength=${chunk.chunkText?.length || 0}`
-      );
-      console.log(
-        `  Preview: ${chunk.chunkText?.slice(0, 100).replace(/\n/g, " ")}...`
-      );
-
-      const chunkPrompt = buildChunkPrompt(chunk, userQuery);
-
-      let summary = await callAI(model, [{ role: "system", content: chunkPrompt }]);
-
-      if (!summary || summary.trim() === "") {
-        console.warn(`⚠️ Chunk ${idx + 1} returned empty summary. Using placeholder.`);
-        summary = `- Title: ${chunk.title}
-- Year: ${chunk.year}
-- Published date: ${chunk.publishedDate || "Unknown"}
-- Link: ${chunk.link}
-- Key points: No details available, see link.`;
-      }
-
-      chunkSummaries.push(summary);
-    }
-  }
-
-  // 3️⃣ Merge all chunk summaries into one coherent structured response
-  console.log("\n🧩 Merging all chunk summaries into final output");
-
-  const mergePrompt = `
-You are a WHO alert assistant.
-You have been provided with multiple alert summaries from FAISS context.
-User query: "${userQuery}"
-
-Instruction:
-- Merge all summaries into ONE single, coherent structured response according to the user's query.
-- Remove duplicates.
-- Keep structured format: Title, Year, Published date, Link, Key points.
-- Order your summaries using the published date and year, or use the N°# in the title.
-- Consolidate similar points where possible, and combine information for items with the same title.
-- Present as a single response, NOT separate chunk outputs.
-- Do NOT add external information beyond the provided summaries.
-
-Summaries to merge:
-${chunkSummaries.join("\n\n")}
-`;
-
-  let finalOutput = await callAI(model, [{ role: "system", content: mergePrompt }]);
-
-  if (!finalOutput || finalOutput.trim() === "") {
-    console.warn("⚠️ AI returned empty summary after merging. Using fallback concatenation.");
-    finalOutput = chunkSummaries.join("\n\n");
-  }
-
-  console.log(`📝 Final AI output length: ${finalOutput?.length}`);
-  return finalOutput;
 }
